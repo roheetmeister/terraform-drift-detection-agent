@@ -105,13 +105,20 @@ func compare(expected, actual *normalizer.Resource, resourceName string) *DriftR
 		}
 	}
 
-	// Compare tags
+	// Compare tags: state → cloud (missing or changed values)
 	for k, ev := range expected.Tags {
 		av, exists := actual.Tags[k]
 		if !exists {
 			diffs = append(diffs, AttributeDiff{Attribute: "tag:" + k, Expected: ev, Actual: nil})
 		} else if ev != av {
 			diffs = append(diffs, AttributeDiff{Attribute: "tag:" + k, Expected: ev, Actual: av})
+		}
+	}
+
+	// Compare tags: cloud → state (manually added tags not in state)
+	for k, av := range actual.Tags {
+		if _, exists := expected.Tags[k]; !exists {
+			diffs = append(diffs, AttributeDiff{Attribute: "tag:" + k, Expected: nil, Actual: av})
 		}
 	}
 
