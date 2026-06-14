@@ -140,6 +140,25 @@ Requires S3 `GetObject` permission on the state bucket.
 
 ## Architecture
 
+### How It Works
+
+```
+Terraform State ──→ State Reader ──→ Extractor ──→ Expected Model ──┐
+                                                                     ├──→ Drift Engine ──→ Report
+Cloud APIs      ──→ Cloud Fetcher ──→ Extractor ──→ Actual Model   ──┘
+```
+
+| Stage | Component | Description |
+|---|---|---|
+| **State Reader** | `internal/state/` | Reads `.tfstate` from local disk or S3 |
+| **Extractor (State)** | `internal/normalizer/` | Parses TF attributes into a common `Resource` model |
+| **Cloud Fetcher** | `internal/providers/aws/` | Calls AWS APIs (EC2, S3, IAM, Lambda, RDS, VPC) |
+| **Extractor (Cloud)** | `internal/providers/aws/` | Normalises API responses into the same `Resource` model |
+| **Drift Engine** | `internal/detector/` | Compares Expected vs Actual — flags missing, modified, tag changes |
+| **Report** | `internal/reporter/` | Outputs coloured table, JSON, or web dashboard |
+
+### Project Layout
+
 ```
 terraform-drift-detection-agent/
 ├── cmd/drift/main.go                   # Cobra CLI (scan / serve / schedule)
