@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Terraform Drift Detector</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+    header { background: #1a1f2e; border-bottom: 1px solid #2d3748; padding: 16px 32px; display: flex; align-items: center; gap: 16px; }
+    header h1 { font-size: 1.25rem; font-weight: 600; color: #7c3aed; }
+    header span { font-size: 0.8rem; color: #718096; }
+    main { padding: 32px; max-width: 1400px; margin: 0 auto; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 8px; padding: 20px; text-align: center; }
+    .card .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .05em; color: #718096; margin-bottom: 8px; }
+    .card .value { font-size: 2rem; font-weight: 700; }
+    .card.total .value  { color: #63b3ed; }
+    .card.drifted .value { color: #fc8181; }
+    .card.missing .value { color: #f56565; }
+    .card.modified .value { color: #f6ad55; }
+    .card.tagged .value { color: #fbd38d; }
+    .card.clean .value  { color: #68d391; }
+    .toolbar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; align-items: center; }
+    .toolbar button { padding: 8px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: opacity .15s; }
+    .btn-scan { background: #7c3aed; color: #fff; }
+    .btn-scan:hover { opacity: .85; }
+    .btn-refresh { background: #2d3748; color: #e2e8f0; }
+    .btn-refresh:hover { opacity: .85; }
+    .status { font-size: 0.8rem; color: #718096; }
+    table { width: 100%; border-collapse: collapse; background: #1a1f2e; border-radius: 8px; overflow: hidden; border: 1px solid #2d3748; }
+    thead tr { background: #2d3748; }
+    th { padding: 10px 14px; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; color: #a0aec0; }
+    td { padding: 10px 14px; font-size: 0.8rem; border-top: 1px solid #2d3748; vertical-align: top; }
+    tr:hover td { background: #1e2535; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+    .badge-missing  { background: #742a2a; color: #fc8181; }
+    .badge-modified { background: #744210; color: #f6ad55; }
+    .badge-tag_changed { background: #744210; color: #fbd38d; }
+    .attr-row { display: flex; flex-direction: column; gap: 2px; }
+    .attr-item { font-size: 0.72rem; font-family: 'Cascadia Code', 'Fira Code', monospace; color: #a0aec0; }
+    .attr-item span.key { color: #63b3ed; }
+    .attr-item span.expected { color: #68d391; }
+    .attr-item span.actual   { color: #fc8181; }
+    #no-data { text-align: center; padding: 60px; color: #718096; }
+    .meta { font-size: 0.75rem; color: #718096; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Terraform Drift Detector</h1>
+    <span id="last-scan">No scans yet</span>
+  </header>
+  <main>
+    <div class="summary">
+      <div class="card total">   <div class="label">Total</div>    <div class="value" id="s-total">—</div></div>
+      <div class="card drifted"> <div class="label">Drifted</div>  <div class="value" id="s-drifted">—</div></div>
+      <div class="card missing"> <div class="label">Missing</div>  <div class="value" id="s-missing">—</div></div>
+      <div class="card modified"><div class="label">Modified</div> <div class="value" id="s-modified">—</div></div>
+      <div class="card tagged">  <div class="label">Tag Changed</div><div class="value" id="s-tagged">—</div></div>
+      <div class="card clean">   <div class="label">Clean</div>    <div class="value" id="s-clean">—</div></div>
+    </div>
+    <div class="toolbar">
+      <button class="btn-scan" onclick="triggerScan()">Run Scan</button>
+      <button class="btn-refresh" onclick="loadReports()">Refresh</button>
+      <span class="status" id="status-msg"></span>
+    </div>
+    <div id="table-wrap">
+      <div id="no-data">No drift reports yet. Run a scan to get started.</div>
+    </div>
+  </main>
+
+  <script>
+    async function loadReports() {
+      setStatus('Loading...');
+      try {
+        const r = await fetch('/api/reports');
+        const reports = await r.json();
+        if (!reports || reports.length === 0) {
+          document.getElementById('no-data').style.display = '';
+          document.getElementById('table-wrap').innerHTML = '<div id="no-data">No drift reports yet. Run a scan to get started.</div>';
+          setStatus('');
+          return;
+        }
+        const latest = reports[reports.length - 1];
+        renderSummary(latest);
+        renderTable(reports);
+        document.getElementById('last-scan').textContent = 'Last scan: ' + new Date(latest.scanned_at).toLocaleString();
+        setStatus('');
+      } catch(e) {
+        setStatus('Error loading reports: ' + e.message);
+      }
+    }
+
+    async function triggerScan() {
+      setStatus('Scanning...');
+      try {
+        const r = await fetch('/api/scan', { method: 'POST' });
+        if (!r.ok) {
+          const t = await r.text();
+          setStatus('Scan failed: ' + t);
+          return;
+        }
+        await loadReports();
+        setStatus('Scan complete.');
+      } catch(e) {
+        setStatus('Error: ' + e.message);
+      }
+    }
+
+    function renderSummary(r) {
+      document.getElementById('s-total').textContent   = r.summary.total_resources;
+      document.getElementById('s-drifted').textContent = r.summary.drifted;
+      document.getElementById('s-missing').textContent = r.summary.missing;
+      document.getElementById('s-modified').textContent= r.summary.modified;
+      document.getElementById('s-tagged').textContent  = r.summary.tag_changed;
+      document.getElementById('s-clean').textContent   = r.summary.clean;
+    }
+
+    function renderTable(reports) {
+      const allDrifts = [];
+      for (const rep of reports) {
+        for (const d of (rep.drifts || [])) {
+          allDrifts.push({ ...d, _state: rep.state_file, _region: rep.region });
+        }
+      }
+      if (allDrifts.length === 0) {
+        document.getElementById('table-wrap').innerHTML = '<div id="no-data" style="text-align:center;padding:60px;color:#718096">No drift detected across all scans.</div>';
+        return;
+      }
+      let html = `<table>
+        <thead><tr>
+          <th>Resource ID</th><th>Type</th><th>Name</th><th>Drift</th><th>Differences</th><th>Scanned At</th>
+        </tr></thead><tbody>`;
+      for (const d of allDrifts) {
+        html += `<tr>
+          <td style="font-family:monospace;font-size:0.75rem">${esc(d.resource_id)}</td>
+          <td>${esc(d.resource_type)}</td>
+          <td>${esc(d.resource_name || '')}</td>
+          <td><span class="badge badge-${d.drift_type}">${d.drift_type}</span></td>
+          <td>${renderDiffs(d.differences)}</td>
+          <td style="white-space:nowrap">${new Date(d.scanned_at).toLocaleString()}</td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      document.getElementById('table-wrap').innerHTML = html;
+    }
+
+    function renderDiffs(diffs) {
+      if (!diffs || diffs.length === 0) return '<span style="color:#718096">—</span>';
+      return '<div class="attr-row">' + diffs.map(d =>
+        `<div class="attr-item"><span class="key">${esc(d.attribute)}</span>: <span class="expected">${esc(String(d.expected))}</span> → <span class="actual">${esc(String(d.actual))}</span></div>`
+      ).join('') + '</div>';
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function setStatus(msg) { document.getElementById('status-msg').textContent = msg; }
+
+    loadReports();
+    setInterval(loadReports, 30000);
+  </script>
+</body>
+</html>

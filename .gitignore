@@ -1,0 +1,14 @@
+# Binaries
+drift
+*.exe
+*.out
+
+# Go
+vendor/
+
+# Environment
+.env
+*.env.local
+
+# OS
+.DS_Store
