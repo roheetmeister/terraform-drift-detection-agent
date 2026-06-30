@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: terraform-drift-agent
+  namespace: terraform-drift
+  labels:
+    app: terraform-drift-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: terraform-drift-agent
+  template:
+    metadata:
+      labels:
+        app: terraform-drift-agent
+    spec:
+      containers:
+        - name: drift-agent
+          image: kind-registry:5000/drift-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          command: ["drift", "serve", "--state", "/data/terraform.tfstate", "--port", "8080"]
+          envFrom:
+            - secretRef:
+                name: aws-credentials
+          volumeMounts:
+            - name: tfstate
+              mountPath: /data/terraform.tfstate
+              subPath: terraform.tfstate
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "300m"
+              memory: "128Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: tfstate
+          configMap:
+            name: drift-tfstate

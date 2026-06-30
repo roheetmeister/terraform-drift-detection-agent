@@ -1,0 +1,6 @@
+terraform/.terraform/
+terraform/terraform.tfstate*
+*.tfstate
+*.tfstate.backup
+.git/
+drift

@@ -19,7 +19,7 @@ resource "aws_s3_bucket" "drift_detector" {
   tags = {
     Name        = "ai-tf-drift-detector"
     Project     = "terraform-drift-detection-agent"
-    Environment = "production"
+    Environment = "development"
     ManagedBy   = "terraform"
   }
 }
